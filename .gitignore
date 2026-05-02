@@ -1,1 +1,24 @@
 embeddings/
+
+venv/
+
+#Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+
+.env
+.env.*
+
+
+*.log
+
+
+tmp/
+temp/
+
+#OS junk
+.DS_Store
+Thumbs.db
