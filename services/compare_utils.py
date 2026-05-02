@@ -5,7 +5,7 @@ def cosine_similarity(vec1, vec2):
     return np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
 
 
-def is_match(embedding, known_embeddings, threshold=0.6):
+def is_match(embedding, known_embeddings, threshold=0.55):
     best_match = None
     best_score = -1
 

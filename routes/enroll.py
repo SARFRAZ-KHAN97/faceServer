@@ -3,44 +3,56 @@ import json
 import os
 from services.face_utils import extract_embedding
 
+router = APIRouter()
 
-router= APIRouter()
+EMBEDDINGS_FILE = "embeddings/student_embeddings.json"
 
-EMBEDDINGS_FILE= "embeddings/student_embeddings.json"
+# Ensure folder
+os.makedirs("embeddings", exist_ok=True)
 
-
-# Ensure directory and file exist
-if not os.path.exists("embeddings"):
-    os.makedirs("embeddings")
-
-# If file doesn’t exist or is empty, initialize it with {}
+# Ensure file
 if not os.path.exists(EMBEDDINGS_FILE) or os.path.getsize(EMBEDDINGS_FILE) == 0:
     with open(EMBEDDINGS_FILE, "w") as f:
         json.dump({}, f)
 
+# Load once in memory
+with open(EMBEDDINGS_FILE, "r") as f:
+    KNOWN_EMBEDDINGS = json.load(f)
+
 
 @router.post("/enroll-student")
-async def enroll_student(studentId: str = Form(...), file: UploadFile = None):
-    print("hii")
+async def enroll_student(
+    studentId: str = Form(...),
+    file: UploadFile = None
+):
     if not file:
-        return {"status": "failure", "message": "No image uploaded"}
+        return {
+            "status": "failure",
+            "message": "No image uploaded"
+        }
 
-    # read image
     image_bytes = await file.read()
 
     try:
-        embedding = extract_embedding(image_bytes)
+        embedding = extract_embedding(image_bytes, strict=True)
+
     except Exception as e:
-        return {"status": "failure", "message": str(e)}
+        return {
+            "status": "failure",
+            "message": str(e)
+        }
 
-    # load existing embeddings
-    with open(EMBEDDINGS_FILE, "r") as f:
-        data = json.load(f)
+    # Update memory instantly
+    KNOWN_EMBEDDINGS[studentId] = {
+        "embedding": embedding
+    }
 
-    # update/add student
-    data[studentId] = {"embedding": embedding}
-
+    # Save file
     with open(EMBEDDINGS_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(KNOWN_EMBEDDINGS, f)
 
-    return {"status": "success", "message": "Student enrolled successfully", "studentId": studentId}
+    return {
+        "status": "success",
+        "message": "Student enrolled successfully",
+        "studentId": studentId
+    }

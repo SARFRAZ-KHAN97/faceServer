@@ -1,69 +1,92 @@
-from fastapi import APIRouter, UploadFile, Form
-import json, requests
+from fastapi import APIRouter, UploadFile, Form, BackgroundTasks
+import httpx
+from routes.enroll import KNOWN_EMBEDDINGS
 from services.face_utils import extract_embeddings
 from services.compare_utils import is_match
 
 router = APIRouter()
-EMBEDDINGS_FILE = "embeddings/student_embeddings.json"
 
-NODE_SERVER_URL = "http://localhost:4040/attd/mark-batch"  # Node endpoint
+NODE_SERVER_URL = "http://4.194.252.156:4040/attd/mark-batch"
+
+
+async def post_attendance(lecture_id, present_students):
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                NODE_SERVER_URL,
+                json={
+                    "lectureId": lecture_id,
+                    "presentStudents": present_students
+                },
+                timeout=5
+            )
+    except:
+        pass
+
 
 @router.post("/recognize")
 async def recognize_student(
+    background_tasks: BackgroundTasks,
     lectureId: str = Form(...),
     file: UploadFile = None
 ):
     if not file:
-        return {"status": "failure", "message": "No image uploaded"}
+        return {
+            "status": "failure",
+            "message": "No image uploaded"
+        }
 
     image_bytes = await file.read()
 
     try:
-        faces = extract_embeddings(image_bytes)  # embeddings + bboxes
+        faces = extract_embeddings(image_bytes)
+
     except Exception as e:
-        return {"status": "failure", "message": str(e)}
+        return {
+            "status": "failure",
+            "message": str(e)
+        }
 
-    with open(EMBEDDINGS_FILE, "r") as f:
-        known_embeddings = json.load(f)
-
-    if not known_embeddings:
-        return {"status": "failure", "message": "No students enrolled yet"}
+    if not KNOWN_EMBEDDINGS:
+        return {
+            "status": "failure",
+            "message": "No students enrolled yet"
+        }
 
     present_students = []
     results = []
 
     for face in faces:
-        embedding = face["embedding"]
-        bbox = face["bbox"]
+        match_id, score = is_match(
+            face["embedding"],
+            KNOWN_EMBEDDINGS
+        )
 
-        match_id, score = is_match(embedding, known_embeddings)
         if match_id:
             present_students.append(match_id)
+
             results.append({
                 "studentId": match_id,
                 "similarity": score,
-                "bbox": bbox
+                "bbox": face["bbox"]
             })
+
         else:
             results.append({
                 "studentId": None,
                 "similarity": None,
-                "bbox": bbox,
+                "bbox": face["bbox"],
                 "message": "No match found"
             })
 
-    # ---- send to Node server ----
-    try:
-        resp = requests.post(NODE_SERVER_URL, json={
-            "lectureId": lectureId,
-            "presentStudents": present_students
-        })
-        node_response = resp.json()
-    except Exception as e:
-        node_response = {"status": "failure", "message": f"Could not update Node server: {e}"}
+    background_tasks.add_task(
+        post_attendance,
+        lectureId,
+        present_students
+    )
 
     return {
         "status": "success",
         "recognized": results,
-        "attendanceUpdate": node_response
+        "attendanceUpdate": "Processing in background"
     }
